@@ -74,7 +74,7 @@ def get_devices(organisation_id, api_key):
     response = requests.get(url, headers=headers, timeout=10)
     if response.status_code != 200:
         raise requests.exceptions.RequestException(
-            f"Failed to get devices: {response.text}"
+            f"Failed to get devices. Status code: {response.status_code}, Response: {response.text}"
         )
     return response.json()
 
