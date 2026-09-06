@@ -13,6 +13,50 @@ import yaml
 
 PRO_CONTROLLER = "pro_controller"
 LOOP_DELAY = 65
+_LOG = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SensorDefinition:
+    """Describes one sensor exposed through MQTT discovery."""
+
+    key: str
+    name: str
+    telemetry_key: str
+    state_topic_attr: str
+    device_class: str | None
+
+
+SENSORS = (
+    SensorDefinition("ph", "pH", "ph", "ph_state_topic", "ph"),
+    SensorDefinition("temp", "Temp", "temperature", "temp_state_topic", "temperature"),
+    SensorDefinition("ec", "EC", "electrical_conductivity", "ec_state_topic", None),
+)
+
+
+@dataclass(frozen=True)
+class AlarmDefinition:
+    """Describes one alarm or lockout exposed through MQTT."""
+
+    key: str
+    name: str
+
+
+ALARMS = (
+    AlarmDefinition("alarm.ec_low_alarm", "EC low alarm"),
+    AlarmDefinition("alarm.ec_high_alarm", "EC high alarm"),
+    AlarmDefinition("alarm.ph_low_alarm", "pH low alarm"),
+    AlarmDefinition("alarm.ph_high_alarm", "pH high alarm"),
+    AlarmDefinition("alarm.temp_low_alarm", "Temperature low alarm"),
+    AlarmDefinition("alarm.temp_high_alarm", "Temperature high alarm"),
+    AlarmDefinition("alarm.other_lockout", "Other lockout"),
+    AlarmDefinition(
+        "alarm.ineffective_control_lockout", "Ineffective control lockout"
+    ),
+    AlarmDefinition("alarm.low_ec_lockout", "Low EC lockout"),
+    AlarmDefinition("alarm.normally_closed_lockout", "Normally closed lockout"),
+    AlarmDefinition("alarm.normally_open_lockout", "Normally open lockout"),
+)
 
 
 @dataclass
@@ -81,12 +125,19 @@ def get_devices(organisation_id, api_key):
 
 def update_device_ids(app_config: AppConfig, device_info: list[dict]):
     """Get the device id from Bluelab and update our device list."""
+    devices_by_label = {device["label"]: device for device in device_info}
+    missing_labels = []
+
     for dconf in app_config.devices:
-        for dinfo in device_info:
-            if dconf.label == dinfo["label"]:
-                dconf.id = dinfo["id"]
-                break
-    return
+        device = devices_by_label.get(dconf.label)
+        if device is None:
+            missing_labels.append(dconf.label)
+        else:
+            dconf.id = device["id"]
+
+    if missing_labels:
+        labels = ", ".join(missing_labels)
+        raise ValueError(f"No Edenic device found for label(s): {labels}")
 
 
 def get_telemetry(device_id, api_key):
@@ -107,6 +158,34 @@ def get_telemetry(device_id, api_key):
     return response.json()
 
 
+def get_device_attributes(device_id, api_key):
+    """Return the configured alarm and lockout attributes for a device."""
+    url = f"https://api.edenic.io/api/v1/device-attribute/{device_id}"
+    headers = {"Authorization": api_key}
+    response = requests.get(
+        url,
+        headers=headers,
+        params={"keys": ",".join(alarm.key for alarm in ALARMS)},
+        timeout=10,
+    )
+    if response.status_code != 200:
+        raise requests.exceptions.RequestException(
+            f"Failed to get device attributes. Status code: {response.status_code}, "
+            f"Response: {response.text}"
+        )
+    return response.json()
+
+
+def alarm_topics(app_config: AppConfig, device: DeviceConfig) -> tuple[str, str]:
+    """Return the binary-sensor base topic and summary topic for a device."""
+    prefix = app_config.discovery_prefix
+    device_key = device.label.lower()
+    return (
+        f"{prefix}/binary_sensor/edenic_{device_key}_alarm",
+        f"{prefix}/sensor/edenic_{device_key}_alarm_summary",
+    )
+
+
 def create_on_connect(app_config: AppConfig) -> Callable:
     """Create a callback to handle connection to MQTT broker.
 
@@ -125,21 +204,14 @@ def create_on_connect(app_config: AppConfig) -> Callable:
         for d in app_config.devices:
             if d.type == PRO_CONTROLLER:
                 base_url = f"{app_config.discovery_prefix}/sensor"
-                for stype in ["pH", "Temp", "EC"]:
-                    sname = f"{stype.lower()}_{d.label}"
+                for sensor in SENSORS:
+                    sname = f"{sensor.key}_{d.label}"
                     config_topic = f"{base_url}/{sname}/config"
                     state_topic = f"{base_url}/{sname}/state"
-                    if stype == "pH":
-                        d.ph_state_topic = state_topic
-                    elif stype == "Temp":
-                        d.temp_state_topic = state_topic
-                    elif stype == "EC":
-                        d.ec_state_topic = state_topic
-                    # https://www.home-assistant.io/integrations/sensor/#device-class
-                    dclass = {"pH": "ph", "Temp": "temperature", "EC": None}.get(stype)
+                    setattr(d, sensor.state_topic_attr, state_topic)
                     payload = {
-                        "name": f"Bluelab {stype} {d.label}",
-                        "device_class": dclass,
+                        "name": f"Bluelab {sensor.name} {d.label}",
+                        "device_class": sensor.device_class,
                         "state_topic": state_topic,
                         "unique_id": sname,
                         "expire_after": LOOP_DELAY * 2,
@@ -153,13 +225,53 @@ def create_on_connect(app_config: AppConfig) -> Callable:
                     _LOG.debug(
                         "Added Bluelab %s sensor to Home Assistant: %s", sname, payload
                     )
+
+                alarm_base_topic, summary_topic = alarm_topics(app_config, d)
+                for alarm in ALARMS:
+                    entity_key = alarm.key.replace(".", "_")
+                    config_topic = (
+                        f"{app_config.discovery_prefix}/binary_sensor/"
+                        f"edenic_{d.label.lower()}_{entity_key}/config"
+                    )
+                    state_topic = f"{alarm_base_topic}/{entity_key}/state"
+                    payload = {
+                        "name": f"Bluelab {alarm.name} {d.label}",
+                        "state_topic": state_topic,
+                        "unique_id": f"edenic_{d.label.lower()}_{entity_key}",
+                        "payload_on": "ON",
+                        "payload_off": "OFF",
+                        "device_class": "problem",
+                    }
+                    client.publish(
+                        config_topic,
+                        json.dumps(payload).encode("utf8"),
+                        qos=1,
+                        retain=True,
+                    )
+
+                summary_config_topic = (
+                    f"{app_config.discovery_prefix}/sensor/"
+                    f"edenic_{d.label.lower()}_alarm_summary/config"
+                )
+                summary_payload = {
+                    "name": f"Bluelab alarm summary {d.label}",
+                    "state_topic": f"{summary_topic}/state",
+                    "unique_id": f"edenic_{d.label.lower()}_alarm_summary",
+                    "icon": "mdi:alarm-light",
+                }
+                client.publish(
+                    summary_config_topic,
+                    json.dumps(summary_payload).encode("utf8"),
+                    qos=1,
+                    retain=True,
+                )
             else:
                 raise ValueError(f"Unknown device type: {d.type}")
 
     return on_mqtt_connect
 
 
-def setup_mqtt(app_config: AppConfig, create_on_connect: Callable) -> mqtt.Client:
+def setup_mqtt(app_config: AppConfig, on_connect_factory: Callable) -> mqtt.Client:
     """Setup the MQTT client and subscribe to topics."""
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     host = app_config.mqtt_host
@@ -167,37 +279,40 @@ def setup_mqtt(app_config: AppConfig, create_on_connect: Callable) -> mqtt.Clien
     username = app_config.mqtt_username
     password = app_config.mqtt_password
     client.username_pw_set(username, password)
+    client.on_connect = on_connect_factory(app_config)
     try:
         client.connect(host, port=port)
     except (ConnectionRefusedError, socket.gaierror) as e:
         _LOG.error("Could not connect to MQTT broker: %s", e)
         raise e
-    client.on_connect = create_on_connect(app_config)
 
     return client
 
 
 def process_config(file_path: str) -> AppConfig:
     """Process the configuration file."""
-    with open(file_path, "r", encoding="utf-8") as f:
-        yamls = yaml.safe_load(f)
-        _app_config = AppConfig(**yamls["app"])
+    with open(file_path, "r", encoding="utf-8") as config_file:
+        yaml_config = yaml.safe_load(config_file) or {}
 
-        if not "devices" in yamls:
-            raise ValueError("No devices in config file")
+    if "app" not in yaml_config:
+        raise ValueError("No app configuration in config file")
+    if "devices" not in yaml_config:
+        raise ValueError("No devices in config file")
 
-        for d in yamls["devices"]:
-            device = DeviceConfig(**d)
-            if device.type != PRO_CONTROLLER:
-                raise ValueError(
-                    f"Only {PRO_CONTROLLER} devices are currently supported."
-                )
-            _app_config.devices.append(device)
+    app_config = AppConfig(**yaml_config["app"])
 
-    if not hasattr(logging, _app_config.log_level):
-        raise AttributeError(f"Unknown log_level: {_app_config.APP.log_level}")
+    for device_config in yaml_config["devices"]:
+        device = DeviceConfig(**device_config)
+        if device.type != PRO_CONTROLLER:
+            raise ValueError(
+                f"Only {PRO_CONTROLLER} devices are currently supported."
+            )
+        app_config.devices.append(device)
 
-    return _app_config
+    if app_config.log_level.upper() not in logging.getLevelNamesMapping():
+        raise ValueError(f"Unknown log_level: {app_config.log_level}")
+
+    return app_config
 
 
 def main_loop(mqtt_client, app_config):
@@ -215,44 +330,59 @@ def main_loop(mqtt_client, app_config):
             except requests.exceptions.RequestException as e:
                 _LOG.warning("Error getting telemetry: %s", e)
             if telemetry:
-                for stype in ["ph", "temp", "ec"]:
-                    state_topic = None
-                    value = None
-                    if stype == "ph":
-                        state_topic = d.ph_state_topic
-                        value = telemetry["ph"][0]["value"]
-                    elif stype == "temp":
-                        state_topic = d.temp_state_topic
-                        value = telemetry["temperature"][0]["value"]
-                    elif stype == "ec":
-                        state_topic = d.ec_state_topic
-                        value = telemetry["electrical_conductivity"][0]["value"]
-                    assert (
-                        state_topic is not None and value is not None
-                    ), "Missing state_topic or value!"
+                for sensor in SENSORS:
+                    state_topic = getattr(d, sensor.state_topic_attr)
+                    value = telemetry[sensor.telemetry_key][0]["value"]
+                    if state_topic is None or value is None:
+                        raise ValueError(
+                            f"Missing state topic or value for {sensor.key}"
+                        )
                     mqtt_client.publish(state_topic, value.encode("utf8"))
                     _LOG.debug("Published %s to %s", value, state_topic)
+
+            try:
+                attributes = get_device_attributes(d.id, app_config.api_key)
+            except requests.exceptions.RequestException as e:
+                _LOG.warning("Error getting device attributes: %s", e)
+            else:
+                values_by_key = {
+                    attribute["key"]: bool(attribute["value"])
+                    for attribute in attributes
+                }
+                alarm_base_topic, summary_topic = alarm_topics(app_config, d)
+                active_alarms = []
+                for alarm in ALARMS:
+                    entity_key = alarm.key.replace(".", "_")
+                    state = "ON" if values_by_key.get(alarm.key, False) else "OFF"
+                    mqtt_client.publish(
+                        f"{alarm_base_topic}/{entity_key}/state", state
+                    )
+                    if state == "ON":
+                        active_alarms.append(alarm.name)
+
+                summary = ", ".join(active_alarms) or "No active alarms"
+                mqtt_client.publish(f"{summary_topic}/state", summary)
+                _LOG.debug("Published alarm summary for %s: %s", d.label, summary)
 
         time.sleep(LOOP_DELAY)
 
 
-APP_CONFIG = process_config("edenic.yml")
+def main() -> None:
+    """Load configuration, initialize integrations, and publish telemetry."""
+    app_config = process_config("edenic.yml")
+    logging.basicConfig(
+        level=app_config.log_level,
+        format="%(asctime)s rpi: %(message)s",
+    )
+    _LOG.info("Starting Bluelab MQTT")
 
-logging.basicConfig(
-    level=APP_CONFIG.log_level,
-    format="%(asctime)s rpi: %(message)s",
-)
-_LOG = logging.getLogger(__name__)
+    device_info = get_devices(app_config.org_key, app_config.api_key)
+    update_device_ids(app_config, device_info)
 
-_LOG.info("Starting Bluelab MQTT")
+    mqtt_client = setup_mqtt(app_config, create_on_connect)
+    mqtt_client.loop_start()
+    main_loop(mqtt_client, app_config)
 
 
-# Get the individual device IDs from Edenic
-DEVICE_INFO = get_devices(APP_CONFIG.org_key, APP_CONFIG.api_key)
-update_device_ids(APP_CONFIG, DEVICE_INFO)
-
-# Set up the MQTT client
-MQTT_CLIENT = setup_mqtt(APP_CONFIG, create_on_connect)
-MQTT_CLIENT.loop_start()
-
-main_loop(MQTT_CLIENT, APP_CONFIG)
+if __name__ == "__main__":
+    main()
