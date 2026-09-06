@@ -11,6 +11,7 @@ import paho.mqtt.client as mqtt
 import requests
 import yaml
 
+NO_ACTIVE_ALARMS = "No active alarms"
 PRO_CONTROLLER = "pro_controller"
 LOOP_DELAY = 65
 _LOG = logging.getLogger(__name__)
@@ -360,7 +361,7 @@ def main_loop(mqtt_client, app_config):
                     if state == "ON":
                         active_alarms.append(alarm.name)
 
-                summary = ", ".join(active_alarms) or "No active alarms"
+                summary = ", ".join(active_alarms) or NO_ACTIVE_ALARMS
                 mqtt_client.publish(f"{summary_topic}/state", summary)
                 _LOG.debug("Published alarm summary for %s: %s", d.label, summary)
 
