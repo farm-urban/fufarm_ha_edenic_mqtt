@@ -10,6 +10,9 @@ app:
   # Home Assistant MQTT Discovery
   discovery_prefix: "homeassistant"
 
+  # Which alarm entities to create: "individual", "summary", or "both"
+  alarm_mode: "all"
+
   # Edenic API
   org_key: ""
   api_key: ""

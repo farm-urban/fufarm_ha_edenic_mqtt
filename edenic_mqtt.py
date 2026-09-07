@@ -14,6 +14,10 @@ import yaml
 NO_ACTIVE_ALARMS = "No active alarms"
 PRO_CONTROLLER = "pro_controller"
 LOOP_DELAY = 65
+ALARM_MODE_INDIVIDUAL = "individual"
+ALARM_MODE_SUMMARY = "summary"
+ALARM_MODE_ALL = "all"
+ALARM_MODES = (ALARM_MODE_INDIVIDUAL, ALARM_MODE_SUMMARY, ALARM_MODE_ALL)
 _LOG = logging.getLogger(__name__)
 
 
@@ -88,6 +92,9 @@ class AppConfig:
     mqtt_password: str = ""
 
     discovery_prefix: str = "homeassistant"
+
+    # Which alarm entities to create: "individual", "summary", or "both"
+    alarm_mode: str = ALARM_MODE_ALL
 
     org_key: str = ""
     api_key: str = ""
@@ -228,44 +235,46 @@ def create_on_connect(app_config: AppConfig) -> Callable:
                     )
 
                 alarm_base_topic, summary_topic = alarm_topics(app_config, d)
-                for alarm in ALARMS:
-                    entity_key = alarm.key.replace(".", "_")
-                    config_topic = (
-                        f"{app_config.discovery_prefix}/binary_sensor/"
-                        f"edenic_{d.label.lower()}_{entity_key}/config"
+                if app_config.alarm_mode in (ALARM_MODE_INDIVIDUAL, ALARM_MODE_ALL):
+                    for alarm in ALARMS:
+                        entity_key = alarm.key.replace(".", "_")
+                        config_topic = (
+                            f"{app_config.discovery_prefix}/binary_sensor/"
+                            f"edenic_{d.label.lower()}_{entity_key}/config"
+                        )
+                        state_topic = f"{alarm_base_topic}/{entity_key}/state"
+                        payload = {
+                            "name": f"Bluelab {alarm.name} {d.label}",
+                            "state_topic": state_topic,
+                            "unique_id": f"edenic_{d.label.lower()}_{entity_key}",
+                            "payload_on": "ON",
+                            "payload_off": "OFF",
+                            "device_class": "problem",
+                        }
+                        client.publish(
+                            config_topic,
+                            json.dumps(payload).encode("utf8"),
+                            qos=1,
+                            retain=True,
+                        )
+
+                if app_config.alarm_mode in (ALARM_MODE_SUMMARY, ALARM_MODE_ALL):
+                    summary_config_topic = (
+                        f"{app_config.discovery_prefix}/sensor/"
+                        f"edenic_{d.label.lower()}_alarm_summary/config"
                     )
-                    state_topic = f"{alarm_base_topic}/{entity_key}/state"
-                    payload = {
-                        "name": f"Bluelab {alarm.name} {d.label}",
-                        "state_topic": state_topic,
-                        "unique_id": f"edenic_{d.label.lower()}_{entity_key}",
-                        "payload_on": "ON",
-                        "payload_off": "OFF",
-                        "device_class": "problem",
+                    summary_payload = {
+                        "name": f"Bluelab alarm summary {d.label}",
+                        "state_topic": f"{summary_topic}/state",
+                        "unique_id": f"edenic_{d.label.lower()}_alarm_summary",
+                        "icon": "mdi:alarm-light",
                     }
                     client.publish(
-                        config_topic,
-                        json.dumps(payload).encode("utf8"),
+                        summary_config_topic,
+                        json.dumps(summary_payload).encode("utf8"),
                         qos=1,
                         retain=True,
                     )
-
-                summary_config_topic = (
-                    f"{app_config.discovery_prefix}/sensor/"
-                    f"edenic_{d.label.lower()}_alarm_summary/config"
-                )
-                summary_payload = {
-                    "name": f"Bluelab alarm summary {d.label}",
-                    "state_topic": f"{summary_topic}/state",
-                    "unique_id": f"edenic_{d.label.lower()}_alarm_summary",
-                    "icon": "mdi:alarm-light",
-                }
-                client.publish(
-                    summary_config_topic,
-                    json.dumps(summary_payload).encode("utf8"),
-                    qos=1,
-                    retain=True,
-                )
             else:
                 raise ValueError(f"Unknown device type: {d.type}")
 
@@ -313,6 +322,9 @@ def process_config(file_path: str) -> AppConfig:
     if app_config.log_level.upper() not in logging.getLevelNamesMapping():
         raise ValueError(f"Unknown log_level: {app_config.log_level}")
 
+    if app_config.alarm_mode not in ALARM_MODES:
+        raise ValueError(f"Unknown alarm_mode: {app_config.alarm_mode}")
+
     return app_config
 
 
@@ -353,17 +365,24 @@ def main_loop(mqtt_client, app_config):
                 alarm_base_topic, summary_topic = alarm_topics(app_config, d)
                 active_alarms = []
                 for alarm in ALARMS:
-                    entity_key = alarm.key.replace(".", "_")
                     state = "ON" if values_by_key.get(alarm.key, False) else "OFF"
-                    mqtt_client.publish(
-                        f"{alarm_base_topic}/{entity_key}/state", state
-                    )
+                    if app_config.alarm_mode in (
+                        ALARM_MODE_INDIVIDUAL,
+                        ALARM_MODE_ALL,
+                    ):
+                        entity_key = alarm.key.replace(".", "_")
+                        mqtt_client.publish(
+                            f"{alarm_base_topic}/{entity_key}/state", state
+                        )
                     if state == "ON":
                         active_alarms.append(alarm.name)
 
-                summary = ", ".join(active_alarms) or NO_ACTIVE_ALARMS
-                mqtt_client.publish(f"{summary_topic}/state", summary)
-                _LOG.debug("Published alarm summary for %s: %s", d.label, summary)
+                if app_config.alarm_mode in (ALARM_MODE_SUMMARY, ALARM_MODE_ALL):
+                    summary = ", ".join(active_alarms) or NO_ACTIVE_ALARMS
+                    mqtt_client.publish(f"{summary_topic}/state", summary)
+                    _LOG.debug(
+                        "Published alarm summary for %s: %s", d.label, summary
+                    )
 
         time.sleep(LOOP_DELAY)
 
