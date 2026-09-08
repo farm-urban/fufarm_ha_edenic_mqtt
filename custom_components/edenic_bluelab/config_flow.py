@@ -123,7 +123,7 @@ class EdenicBluelabConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> "EdenicOptionsFlow":
+    def async_get_options_flow(config_entry: ConfigEntry) -> EdenicOptionsFlow:
         """Return the options flow for this handler."""
         return EdenicOptionsFlow(config_entry)
 
@@ -133,8 +133,15 @@ class EdenicOptionsFlow(OptionsFlow):
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self.config_entry = config_entry
+        self._device_choices: dict[str, dict[str, str]] = {}
 
-    async def async_step_init(
+    async def async_step_init(self, _user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Show a menu to either change settings or manage tracked devices."""
+        return self.async_show_menu(
+            step_id="init", menu_options=["settings", "devices"]
+        )
+
+    async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage alarm mode and polling interval options."""
@@ -159,4 +166,68 @@ class EdenicOptionsFlow(OptionsFlow):
                 ): int,
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="settings", data_schema=schema)
+
+    async def async_step_devices(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Re-fetch devices from Edenic and let the user add/remove tracked ones."""
+        errors: dict[str, str] = {}
+        current_devices = {
+            d["id"]: d["label"] for d in self.config_entry.data[CONF_DEVICES]
+        }
+
+        if user_input is not None:
+            selected_ids = user_input[CONF_DEVICES]
+            devices = [
+                {"id": device_id, "label": self._device_choices[device_id]["label"]}
+                for device_id in selected_ids
+            ]
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={**self.config_entry.data, CONF_DEVICES: devices},
+            )
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            return self.async_create_entry(title="", data={})
+
+        try:
+            devices = await self.hass.async_add_executor_job(
+                get_devices,
+                self.config_entry.data[CONF_ORG_KEY],
+                self.config_entry.data[CONF_API_KEY],
+            )
+        except EdenicAuthError:
+            errors["base"] = "auth"
+        except EdenicApiError:
+            errors["base"] = "cannot_connect"
+        else:
+            # Always keep already-tracked devices selectable, even if Edenic
+            # stops returning them (e.g. temporarily offline), plus any newly
+            # discovered labelled devices.
+            labelled = {d["id"]: d for d in devices if d.get("label")}
+            for device_id, label in current_devices.items():
+                labelled.setdefault(device_id, {"id": device_id, "label": label})
+            self._device_choices = labelled
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_DEVICES, default=list(current_devices.keys())
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(
+                                value=device_id, label=device["label"]
+                            )
+                            for device_id, device in self._device_choices.items()
+                        ],
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="devices", data_schema=schema, errors=errors
+        )
+

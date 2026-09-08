@@ -29,11 +29,28 @@
   "options": {
     "step": {
       "init": {
+        "menu_options": {
+          "settings": "Settings",
+          "devices": "Manage devices"
+        }
+      },
+      "settings": {
         "data": {
           "alarm_mode": "Alarm entities to create",
           "scan_interval": "Polling interval (seconds)"
         }
+      },
+      "devices": {
+        "title": "Manage devices",
+        "description": "Re-checks Edenic for available devices. Select which ones to track in Home Assistant.",
+        "data": {
+          "devices": "Devices"
+        }
       }
+    },
+    "error": {
+      "auth": "Invalid organisation ID or API key.",
+      "cannot_connect": "Could not reach the Edenic API."
     }
   }
 }
