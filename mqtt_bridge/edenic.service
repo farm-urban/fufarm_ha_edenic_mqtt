@@ -1,0 +1,15 @@
+[Unit]
+After=tailscaled.service
+
+[Service]
+WorkingDirectory=/opt/fufarm_ha_edenic/mqtt_bridge
+ExecStart=/opt/fufarm_ha_edenic/mqtt_bridge/venv/bin/python3 ./edenic_mqtt.py
+Restart=always
+StandardOutput=append:/opt/fufarm_ha_edenic/mqtt_bridge/edenic.log
+StandardError=inherit
+SyslogIdentifier=edenic
+User=fu
+Group=fu
+
+[Install]
+WantedBy=multi-user.target
