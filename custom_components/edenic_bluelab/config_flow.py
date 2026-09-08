@@ -55,13 +55,16 @@ class EdenicBluelabConfigFlow(ConfigFlow, domain=DOMAIN):
             except EdenicApiError:
                 errors["base"] = "cannot_connect"
             else:
-                if not devices:
+                # Gateways and other non-controller devices come back with no
+                # label; only labelled devices (Pro Controllers) are selectable.
+                labelled_devices = [d for d in devices if d.get("label")]
+                if not labelled_devices:
                     errors["base"] = "no_devices"
                 else:
                     self._org_key = org_key
                     self._api_key = api_key
                     self._device_choices = {
-                        device["id"]: device for device in devices
+                        device["id"]: device for device in labelled_devices
                     }
                     return await self.async_step_devices()
 
