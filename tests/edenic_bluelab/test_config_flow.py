@@ -44,13 +44,23 @@ async def test_full_flow_creates_entry(hass):
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "devices"
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"devices": ["dev-1"]}
-    )
+    with (
+        patch(
+            "custom_components.edenic_bluelab.coordinator.get_telemetry",
+            return_value={},
+        ),
+        patch(
+            "custom_components.edenic_bluelab.coordinator.get_device_attributes",
+            return_value={},
+        ),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"devices": ["dev-1"]}
+        )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["org_key"] == "org-1"
-    assert result["data"]["devices"] == FAKE_DEVICES
+    assert result["data"]["devices"] == [{"id": "dev-1", "label": "4q3f"}]
 
 
 async def test_devices_step_filters_unlabelled_devices(hass):

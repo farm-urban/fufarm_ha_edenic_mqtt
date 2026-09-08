@@ -23,9 +23,11 @@ from .coordinator import EdenicCoordinator
 
 
 def _device_info(device: dict[str, str]) -> DeviceInfo:
+    # device["name"] is an opaque org_id__mac string from the Edenic API;
+    # the label (e.g. "4q3f") is the human-friendly identifier.
     return DeviceInfo(
         identifiers={(DOMAIN, device["id"])},
-        name=device.get("name", device["label"]),
+        name=device["label"],
         manufacturer="Bluelab",
         model="Pro Controller",
     )

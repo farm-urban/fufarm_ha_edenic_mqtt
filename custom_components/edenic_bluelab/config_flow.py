@@ -87,9 +87,6 @@ class EdenicBluelabConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     "id": device_id,
                     "label": self._device_choices[device_id]["label"],
-                    "name": self._device_choices[device_id].get(
-                        "name", self._device_choices[device_id]["label"]
-                    ),
                 }
                 for device_id in selected_ids
             ]

@@ -56,7 +56,7 @@ class EdenicAlarmBinarySensor(CoordinatorEntity[EdenicCoordinator], BinarySensor
         )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
-            name=device.get("name", device["label"]),
+            name=device["label"],
             manufacturer="Bluelab",
             model="Pro Controller",
         )
