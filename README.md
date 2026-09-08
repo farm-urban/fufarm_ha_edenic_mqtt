@@ -4,10 +4,10 @@ Send data from Bluelab Edenic to Home Assistant
 
 ## Install
 
-Clone the respository: `git clone git@github.com:farm-urban/homeassistant_edenic.git`
+Clone the respository: `git clone git@github.com:farm-urban/fufarm_ha_edenic.git`
 Create the python virtual environment:
 
-```cd homeassistant_edenic
+```cd fufarm_ha_edenic/mqtt_bridge
 python -m venv ./venv
 source ./venv/bin/activate
 pip install paho-mqtt requests pyyaml
