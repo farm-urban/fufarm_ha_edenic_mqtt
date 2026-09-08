@@ -1,3 +1,6 @@
 edenic.yml
 edenic.log
 venv
+.venv
+__pycache__/
+*.pyc
