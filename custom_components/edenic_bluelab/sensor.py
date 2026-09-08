@@ -83,7 +83,7 @@ class EdenicAlarmSummarySensor(CoordinatorEntity[EdenicCoordinator], SensorEntit
     def __init__(self, coordinator, device) -> None:
         super().__init__(coordinator)
         self._device_id = device["id"]
-        self._attr_name = f"Alarm summary {device['label']}"
+        self._attr_name = f"Alarms {device['label']}"
         self._attr_unique_id = f"{self._device_id}_alarm_summary"
         self._attr_device_info = _device_info(device)
 

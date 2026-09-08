@@ -264,7 +264,7 @@ def create_on_connect(app_config: AppConfig) -> Callable:
                         f"edenic_{d.label.lower()}_alarm_summary/config"
                     )
                     summary_payload = {
-                        "name": f"Bluelab alarm summary {d.label}",
+                        "name": f"Bluelab alarms {d.label}",
                         "state_topic": f"{summary_topic}/state",
                         "unique_id": f"edenic_{d.label.lower()}_alarm_summary",
                         "icon": "mdi:alarm-light",
@@ -381,7 +381,7 @@ def main_loop(mqtt_client, app_config):
                     summary = ", ".join(active_alarms) or NO_ACTIVE_ALARMS
                     mqtt_client.publish(f"{summary_topic}/state", summary)
                     _LOG.debug(
-                        "Published alarm summary for %s: %s", d.label, summary
+                        "Published alarms for %s: %s", d.label, summary
                     )
 
         time.sleep(LOOP_DELAY)
