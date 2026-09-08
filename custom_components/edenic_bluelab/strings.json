@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Edenic",
+        "data": {
+          "org_key": "Organisation ID",
+          "api_key": "API key"
+        }
+      },
+      "devices": {
+        "title": "Select devices",
+        "description": "Choose the Bluelab Pro Controllers to add to Home Assistant.",
+        "data": {
+          "devices": "Devices"
+        }
+      }
+    },
+    "error": {
+      "auth": "Invalid organisation ID or API key.",
+      "cannot_connect": "Could not reach the Edenic API.",
+      "no_devices": "No devices were found for this organisation.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This organisation is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "alarm_mode": "Alarm entities to create",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    }
+  }
+}

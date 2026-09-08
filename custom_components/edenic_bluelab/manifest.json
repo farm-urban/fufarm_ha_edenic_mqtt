@@ -1,0 +1,12 @@
+{
+  "domain": "edenic_bluelab",
+  "name": "Edenic Bluelab",
+  "codeowners": ["@farm-urban"],
+  "config_flow": true,
+  "documentation": "https://github.com/farm-urban/fufarm_ha_edenic",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/farm-urban/fufarm_ha_edenic/issues",
+  "requirements": ["requests>=2.31.0"],
+  "version": "0.1.0"
+}
