@@ -132,8 +132,15 @@ class EdenicOptionsFlow(OptionsFlow):
     """Handle options for an existing Edenic Bluelab entry."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
         self._device_choices: dict[str, dict[str, str]] = {}
+        try:
+            # Older HA: config_entry is a plain settable attribute.
+            # HA >= 2024.11: it's a read-only property managed by the base
+            # class once the flow manager attaches hass/handler, so this
+            # raises AttributeError and can be safely ignored.
+            self.config_entry = config_entry
+        except AttributeError:
+            pass
 
     async def async_step_init(self, _user_input: dict[str, Any] | None = None) -> FlowResult:
         """Show a menu to either change settings or manage tracked devices."""
