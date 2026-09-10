@@ -1,7 +1,0 @@
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-markers = [
-    "live: tests that call the real Edenic API (require tests/secrets.yaml)",
-]
-addopts = "-m \"not live\""
